@@ -1,37 +1,27 @@
 from fastapi import FastAPI, Response, Query
 from pymongo import MongoClient
 import os
-import logging
-
-# --- Logging simple ---
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 app = FastAPI()
-client = None
-collection = None
 
+MONGO_URI = os.getenv("MONGO_URI")  # Assure-toi qu'elle est bien définie sur Vercel
 
 def get_db():
-    global client, collection
-    if client is None:
-        try:
-            client = MongoClient(os.getenv("MONGO_URI"), serverSelectionTimeoutMS=5000)
-            db = client["viewsDB"]
-            collection = db["repos"]
-            logger.info("✅ Connexion MongoDB réussie")
-        except Exception as e:
-            logger.error("❌ Erreur connexion MongoDB: %s", e)
-            raise e
-    return collection
-
+    try:
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        db = client["viewsDB"]
+        collection = db["repos"]
+        return collection
+    except Exception as e:
+        print(f"❌ Erreur connexion MongoDB: {e}")
+        raise e
 
 @app.get("/badge/{user}/{repo}")
 def badge(user: str, repo: str, color: str = Query("#28a745")):
     key = f"{user}/{repo}"
 
     try:
-        coll = get_db()  # Utiliser la connexion ici
+        coll = get_db()
         entry = coll.find_one({"repo": key})
         if entry and "views" in entry:
             views = entry["views"] + 1
@@ -40,7 +30,7 @@ def badge(user: str, repo: str, color: str = Query("#28a745")):
             views = 1
             coll.update_one({"repo": key}, {"$set": {"views": views}}, upsert=True)
 
-        # Génération du badge SVG
+        # Garde exactement ton SVG d'origine
         svg = f"""
 <svg xmlns="http://www.w3.org/2000/svg" width="90" height="20">
   <linearGradient id="b" x2="0" y2="100%">
@@ -66,7 +56,7 @@ def badge(user: str, repo: str, color: str = Query("#28a745")):
         return Response(content=svg, media_type="image/svg+xml")
 
     except Exception as e:
-        logger.error("❌ Erreur badge pour %s: %s", key, e)
+        print(f"❌ Erreur badge pour {key}: {e}")
         error_svg = f"""
 <svg xmlns="http://www.w3.org/2000/svg" width="90" height="20">
   <rect width="90" height="20" fill="#e05d44"/>
