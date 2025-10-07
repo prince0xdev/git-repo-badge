@@ -8,37 +8,39 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+client = None
+collection = None
 
-# --- Connexion MongoDB Atlas ---
-MONGO_URI = os.getenv(
-    "MONGO_URI",
-    "mongodb+srv://prince0xdev:Princeprince4132@git-repo-badge.gfbvyys.mongodb.net/?retryWrites=true&w=majority&appName=git-repo-badge"
-)
-try:
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-    client.server_info()
-    db = client["viewsDB"]
-    collection = db["repos"]
-    logger.info("✅ Connexion MongoDB réussie")
-except Exception as e:
-    logger.error("❌ Erreur connexion MongoDB: %s", e)
-    raise e
+
+def get_db():
+    global client, collection
+    if client is None:
+        try:
+            client = MongoClient(os.getenv("MONGO_URI"), serverSelectionTimeoutMS=5000)
+            db = client["viewsDB"]
+            collection = db["repos"]
+            logger.info("✅ Connexion MongoDB réussie")
+        except Exception as e:
+            logger.error("❌ Erreur connexion MongoDB: %s", e)
+            raise e
+    return collection
+
 
 @app.get("/badge/{user}/{repo}")
 def badge(user: str, repo: str, color: str = Query("#28a745")):
     key = f"{user}/{repo}"
 
     try:
-        # Vérifie si le repo existe déjà dans la base
-        entry = collection.find_one({"repo": key})
+        coll = get_db()  # Utiliser la connexion ici
+        entry = coll.find_one({"repo": key})
         if entry and "views" in entry:
             views = entry["views"] + 1
-            collection.update_one({"repo": key}, {"$set": {"views": views}})
+            coll.update_one({"repo": key}, {"$set": {"views": views}})
         else:
             views = 1
-            collection.update_one({"repo": key}, {"$set": {"views": views}}, upsert=True)
-        
-        # Génération du badge SVG stylé
+            coll.update_one({"repo": key}, {"$set": {"views": views}}, upsert=True)
+
+        # Génération du badge SVG
         svg = f"""
 <svg xmlns="http://www.w3.org/2000/svg" width="90" height="20">
   <linearGradient id="b" x2="0" y2="100%">
@@ -64,8 +66,7 @@ def badge(user: str, repo: str, color: str = Query("#28a745")):
         return Response(content=svg, media_type="image/svg+xml")
 
     except Exception as e:
-        logger.error("❌ Erreur lors de la génération du badge pour %s: %s", key, e)
-        # Retour d’un badge SVG d’erreur minimal
+        logger.error("❌ Erreur badge pour %s: %s", key, e)
         error_svg = f"""
 <svg xmlns="http://www.w3.org/2000/svg" width="90" height="20">
   <rect width="90" height="20" fill="#e05d44"/>
